@@ -1,6 +1,6 @@
-# 🏥 Adaptive Hospital Demand Forecasting
+# Adaptive Hospital Demand Forecasting
 
-## 📌 Overview
+## Overview
 
 Hospital demand can change over time due to seasonal patterns, changing patient behaviour, holidays, outbreaks, weather conditions, and unexpected events. A forecasting model trained only on historical patterns may gradually become less reliable when these patterns change.
 
@@ -8,7 +8,7 @@ This project develops an **AI/ML-based adaptive time-series forecasting system**
 
 ---
 
-## 🎯 Problem Statement
+## Problem Statement
 
 **Adaptive Time-Series Forecasting Under Changing Conditions**
 
@@ -16,7 +16,7 @@ The system must generate forecasts using only information available before the c
 
 ---
 
-## 💡 Proposed Solution
+## Proposed Solution
 
 Our solution follows an adaptive forecasting pipeline:
 
@@ -50,7 +50,7 @@ The system therefore combines **forecasting, continuous monitoring, change detec
 
 ---
 
-## 🏥 Application Domain
+## Application Domain
 
 ### Hospital Demand Forecasting
 
@@ -68,7 +68,7 @@ The forecasting system is designed to respond when the underlying demand behavio
 
 ---
 
-## 🧠 Current Approach
+## Current Approach
 
 The initial implementation uses a **Random Forest regression model** as the forecasting baseline.
 
