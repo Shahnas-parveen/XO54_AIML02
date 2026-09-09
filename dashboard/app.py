@@ -1,269 +1,221 @@
-import sys
 import os
-
-PROJECT_ROOT = os.path.dirname(
-    os.path.dirname(
-        os.path.abspath(__file__)
-    )
-)
-
-sys.path.insert(0, PROJECT_ROOT)
 
 import pandas as pd
 import streamlit as st
+import plotly.graph_objects as go
 
-from src.forecaster import PatientForecaster
 
-
-DATA_PATH = os.path.join(
-    PROJECT_ROOT,
-    "data",
-    "patient_data.csv"
-)
+LOG_PATH = "logs/evaluation_log.csv"
 
 
 st.set_page_config(
-    page_title="Adaptive Hospital Demand Forecasting",
+    page_title="Adaptive Hospital Forecasting",
+    page_icon="🏥",
     layout="wide"
 )
 
+
+# --------------------------------------------------
+# TITLE
+# --------------------------------------------------
+
 st.title("🏥 Adaptive Hospital Demand Forecasting")
 
+st.caption(
+    "Version 1 — Baseline Forecasting & Performance Monitoring"
+)
 
-# ==================================================
-# LOAD WORKING DATA
-# ==================================================
 
-if not os.path.exists(DATA_PATH):
+# --------------------------------------------------
+# CHECK LOG
+# --------------------------------------------------
 
-    st.error(
-        "patient_data.csv not found inside the data folder."
+if not os.path.exists(LOG_PATH):
+
+    st.warning(
+        "No evaluation data available yet. "
+        "Run run_local.py first."
     )
 
     st.stop()
 
 
-df = pd.read_csv(DATA_PATH)
+df = pd.read_csv(LOG_PATH)
 
-df["timestamp"] = pd.to_datetime(
-    df["timestamp"]
+
+if df.empty:
+
+    st.warning("Evaluation log is empty.")
+
+    st.stop()
+
+
+# --------------------------------------------------
+# METRICS
+# --------------------------------------------------
+
+latest = df.iloc[-1]
+
+latest_prediction = latest["predicted"]
+latest_actual = latest["actual"]
+latest_error = latest["absolute_error"]
+
+mean_error = df["absolute_error"].mean()
+
+if latest_actual != 0:
+    latest_error_percent = (
+        latest_error /
+        abs(latest_actual)
+    ) * 100
+else:
+    latest_error_percent = 0
+
+
+col1, col2, col3, col4 = st.columns(4)
+
+
+with col1:
+    st.metric(
+        "Latest Forecast",
+        f"{latest_prediction:.2f}"
+    )
+
+
+with col2:
+    st.metric(
+        "Actual",
+        f"{latest_actual:.2f}"
+    )
+
+
+with col3:
+    st.metric(
+        "Latest Error",
+        f"{latest_error:.2f}"
+    )
+
+
+with col4:
+    st.metric(
+        "Average Error",
+        f"{mean_error:.2f}"
+    )
+
+
+st.divider()
+
+
+# --------------------------------------------------
+# ACTUAL VS PREDICTED
+# --------------------------------------------------
+
+st.subheader("📈 Actual vs Forecast")
+
+fig = go.Figure()
+
+fig.add_trace(
+    go.Scatter(
+        x=df["step"],
+        y=df["actual"],
+        mode="lines+markers",
+        name="Actual"
+    )
 )
 
-df = (
-    df.sort_values("timestamp")
-    .reset_index(drop=True)
+fig.add_trace(
+    go.Scatter(
+        x=df["step"],
+        y=df["predicted"],
+        mode="lines+markers",
+        name="Forecast"
+    )
+)
+
+fig.update_layout(
+    xaxis_title="Time / Step",
+    yaxis_title="Demand",
+    hovermode="x unified"
+)
+
+st.plotly_chart(
+    fig,
+    use_container_width=True
 )
 
 
-# ==================================================
-# TRAIN MODEL
-# ==================================================
+# --------------------------------------------------
+# ERROR
+# --------------------------------------------------
 
-model = PatientForecaster()
+st.subheader("📊 Forecast Error")
 
-model.train(df)
+error_fig = go.Figure()
 
+error_fig.add_trace(
+    go.Scatter(
+        x=df["step"],
+        y=df["absolute_error"],
+        mode="lines+markers",
+        name="Absolute Error"
+    )
+)
 
-# ==================================================
-# NEXT DAY PREDICTION
-# ==================================================
+error_fig.update_layout(
+    xaxis_title="Time / Step",
+    yaxis_title="Absolute Error"
+)
 
-prediction = model.predict_next(df)
-
-last_date = df["timestamp"].iloc[-1]
-
-next_date = (
-    last_date + pd.Timedelta(days=1)
+st.plotly_chart(
+    error_fig,
+    use_container_width=True
 )
 
 
-st.header("Next-Day Patient Demand")
+# --------------------------------------------------
+# SYSTEM STATUS
+# --------------------------------------------------
+
+st.subheader("⚙️ System Status")
+
+if latest_error_percent < 10:
+    status = "🟢 NORMAL"
+else:
+    status = "🟡 HIGH ERROR"
 
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
+
 
 with col1:
 
-    st.metric(
-        "Predicted Patients",
-        f"{prediction:.0f}"
-    )
+    st.write("### Current Status")
+
+    st.success(status)
+
 
 with col2:
 
-    st.metric(
-        "Prediction Date",
-        next_date.strftime("%d %b %Y")
-    )
+    st.write("### Model")
+
+    st.info("Baseline Forecasting Model")
 
 
-st.info(
-    f"Expected patient demand for "
-    f"{next_date.strftime('%d %b %Y')}: "
-    f"**{prediction:.0f} patients**"
+with col3:
+
+    st.write("### Adaptation")
+
+    st.info("Not enabled in Version 1")
+
+
+# --------------------------------------------------
+# LATEST OBSERVATIONS
+# --------------------------------------------------
+
+st.subheader("📋 Recent Forecasts")
+
+display_df = df.tail(10).copy()
+
+st.dataframe(
+    display_df,
+    use_container_width=True
 )
-
-
-# ==================================================
-# ACTUAL PATIENT COUNT
-# ==================================================
-
-st.header("Enter Actual Patient Count")
-
-
-actual_value = st.number_input(
-    f"Actual patient count for "
-    f"{next_date.strftime('%d %b %Y')}",
-    min_value=0.0,
-    step=1.0
-)
-
-
-# ==================================================
-# EVALUATE + SAVE + RETRAIN
-# ==================================================
-
-if st.button("Submit Actual & Adapt Model"):
-
-    # ----------------------------------------------
-    # Calculate error
-    # ----------------------------------------------
-
-    error = abs(
-        actual_value - prediction
-    )
-
-    percentage_error = (
-        error / actual_value * 100
-        if actual_value != 0
-        else 0
-    )
-
-
-    # ----------------------------------------------
-    # Create new observation
-    # ----------------------------------------------
-
-    new_row = pd.DataFrame({
-        "timestamp": [next_date],
-        "target": [actual_value]
-    })
-
-
-    # ----------------------------------------------
-    # Add new observation to existing data
-    # ----------------------------------------------
-
-    updated_df = pd.concat(
-        [
-            df,
-            new_row
-        ],
-        ignore_index=True
-    )
-
-
-    updated_df = (
-        updated_df
-        .sort_values("timestamp")
-        .drop_duplicates(
-            subset=["timestamp"],
-            keep="last"
-        )
-        .reset_index(drop=True)
-    )
-
-
-    # ----------------------------------------------
-    # SAVE TO CSV
-    # ----------------------------------------------
-
-    updated_df.to_csv(
-        DATA_PATH,
-        index=False
-    )
-
-
-    # ----------------------------------------------
-    # RETRAIN MODEL
-    # ----------------------------------------------
-
-    model.train(updated_df)
-
-
-    # ----------------------------------------------
-    # NEW FORECAST
-    # ----------------------------------------------
-
-    new_prediction = (
-        model.predict_next(updated_df)
-    )
-
-    new_last_date = (
-        updated_df["timestamp"].iloc[-1]
-    )
-
-    new_next_date = (
-        new_last_date
-        + pd.Timedelta(days=1)
-    )
-
-
-    # ----------------------------------------------
-    # DISPLAY RESULTS
-    # ----------------------------------------------
-
-    st.success(
-        "Actual observation saved and model retrained."
-    )
-
-
-    st.subheader("Forecast Evaluation")
-
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-
-        st.metric(
-            "Predicted",
-            f"{prediction:.0f}"
-        )
-
-    with col2:
-
-        st.metric(
-            "Actual",
-            f"{actual_value:.0f}"
-        )
-
-    with col3:
-
-        st.metric(
-            "Absolute Error",
-            f"{error:.2f}"
-        )
-
-
-    st.metric(
-        "Percentage Error",
-        f"{percentage_error:.2f}%"
-    )
-
-
-    st.subheader(
-        f"Updated Forecast — "
-        f"{new_next_date.strftime('%d %b %Y')}"
-    )
-
-
-    st.metric(
-        "Predicted Patients",
-        f"{new_prediction:.0f}"
-    )
-
-
-    st.info(
-        f"The new observation has been added to the "
-        f"training data and the model has been retrained."
-    )

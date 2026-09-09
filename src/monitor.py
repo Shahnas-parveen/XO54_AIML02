@@ -2,25 +2,35 @@ import numpy as np
 
 
 def calculate_error(actual, predicted):
-    return abs(actual - predicted)
+
+    error = actual - predicted
+
+    absolute_error = abs(error)
+
+    if actual != 0:
+        percentage_error = (
+            abs(error) / abs(actual)
+        ) * 100
+    else:
+        percentage_error = 0
+
+    return {
+        "error": error,
+        "absolute_error": absolute_error,
+        "percentage_error": percentage_error
+    }
 
 
-def calculate_change_score(errors, window=10):
+def get_basic_status(error_history):
 
-    if len(errors) < window * 2:
-        return 0.0
+    if len(error_history) < 5:
+        return "NORMAL"
 
-    previous_errors = errors[-2 * window:-window]
-    recent_errors = errors[-window:]
+    recent_errors = np.array(error_history[-5:])
 
-    previous_mean = np.mean(previous_errors)
-    recent_mean = np.mean(recent_errors)
+    mean_error = np.mean(recent_errors)
 
-    if previous_mean == 0:
-        return 0.0
+    if mean_error < 10:
+        return "NORMAL"
 
-    return recent_mean / previous_mean
-
-
-def change_detected(change_score, threshold=1.5):
-    return change_score >= threshold
+    return "HIGH ERROR"

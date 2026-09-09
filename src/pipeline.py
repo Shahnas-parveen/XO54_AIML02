@@ -1,98 +1,67 @@
+import os
 import pandas as pd
 
-from src.forecaster import Forecaster
-from src.monitor import (
-    calculate_error,
-    calculate_change_score,
-    change_detected
-)
-from src.adapter import AdaptiveController
-
-from config import (
-    ERROR_WINDOW,
-    CHANGE_THRESHOLD,
-    MIN_ADAPTATION_POINTS,
-    RANDOM_STATE
-)
+from src.monitor import calculate_error
 
 
-def run_forecasting(df, feature_columns, target_column="target"):
+LOG_PATH = "logs/evaluation_log.csv"
 
-    X = df[feature_columns]
-    y = df[target_column]
 
-    split_index = int(len(df) * 0.8)
+class ForecastPipeline:
 
-    X_train = X.iloc[:split_index]
-    y_train = y.iloc[:split_index]
+    def __init__(self, model):
 
-    X_test = X.iloc[split_index:]
-    y_test = y.iloc[split_index:]
+        self.model = model
 
-    forecaster = Forecaster(RANDOM_STATE)
+        self.history = []
+        self.error_history = []
 
-    forecaster.train(X_train, y_train)
+        os.makedirs("logs", exist_ok=True)
 
-    adapter = AdaptiveController()
+    def predict(self, features):
 
-    predictions = []
-    actuals = []
-    errors = []
-    change_scores = []
-    statuses = []
+        prediction = self.model.predict(features)[0]
 
-    for i in range(len(X_test)):
+        return float(prediction)
 
-        current_X = X_test.iloc[[i]]
+    def update(self, step, timestamp, prediction, actual):
 
-        prediction = forecaster.predict(current_X)
-
-        actual = float(y_test.iloc[i])
-
-        error = calculate_error(actual, prediction)
-
-        predictions.append(prediction)
-        actuals.append(actual)
-        errors.append(error)
-
-        score = calculate_change_score(
-            errors,
-            ERROR_WINDOW
+        metrics = calculate_error(
+            actual,
+            prediction
         )
 
-        change_scores.append(score)
+        self.error_history.append(
+            metrics["absolute_error"]
+        )
 
-        if change_detected(
-            score,
-            CHANGE_THRESHOLD
-        ):
+        record = {
+            "step": step,
+            "timestamp": timestamp,
+            "predicted": prediction,
+            "actual": actual,
+            "error": metrics["error"],
+            "absolute_error": metrics["absolute_error"],
+            "percentage_error": metrics["percentage_error"],
+            "status": "NORMAL",
+            "adaptation": "NONE"
+        }
 
-            recent_start = max(
-                0,
-                len(X_train) - MIN_ADAPTATION_POINTS
-            )
+        self.history.append(record)
 
-            X_recent = X_train.iloc[recent_start:]
-            y_recent = y_train.iloc[recent_start:]
+        self._save_log()
 
-            adapter.adapt(
-                forecaster,
-                X_recent,
-                y_recent
-            )
+        return record
 
-            statuses.append("Adapted")
+    def _save_log(self):
 
-        else:
-            statuses.append("Monitoring")
+        df = pd.DataFrame(self.history)
 
-    results = pd.DataFrame({
-        "timestamp": df.iloc[split_index:]["timestamp"].values,
-        "forecast": predictions,
-        "actual": actuals,
-        "error": errors,
-        "change_score": change_scores,
-        "adaptation_status": statuses
-    })
+        df.to_csv(
+            LOG_PATH,
+            index=False
+        )
 
-    return results
+    def get_history(self):
+
+        return pd.DataFrame(self.history)

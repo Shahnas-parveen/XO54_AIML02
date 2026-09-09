@@ -1,54 +1,48 @@
 # Adaptive Hospital Demand Forecasting
 
-## X'O CODE 2026 | PS02 – Adaptive Time-Series Forecasting Under Changing Conditions
+An adaptive time-series forecasting system designed to forecast hospital demand and monitor forecasting performance under changing data behaviour.
 
-### Overview
+## Project Overview
 
-Adaptive Hospital Demand Forecasting is an AI/ML-based time-series forecasting system designed to predict the next day's hospital patient demand and adapt its forecasting model when new actual observations become available.
+The system uses historical time-series data to train a forecasting model and generate sequential predictions.
 
-Unlike a static forecasting system that is trained once and used continuously, this system follows an iterative forecasting workflow:
+The project is designed to evolve through multiple stages:
 
-Historical Patient Data → Forecast → Actual Observation → Error Evaluation → Model Update → New Forecast
+- Version 1: Baseline forecasting and monitoring
+- Version 2: Gradual behavioural change detection
+- Version 3: Temporary anomaly and false-alarm handling
 
-The goal is to support hospital operational planning by providing an updated estimate of expected patient demand while responding to changes in demand patterns.
+## Version 1
 
----
+The current version provides:
 
-## Problem Statement
+- Data preprocessing
+- Forecasting model
+- Time-based model validation
+- Sequential prediction simulation
+- Forecast error monitoring
+- Streamlit dashboard
 
-Real-world demand patterns can change because of factors such as changing patient behaviour, seasonal conditions, policies, weather, supply-chain effects, or unexpected events.
+## Technology Stack
 
-A forecasting model trained on historical data may therefore become less reliable when the underlying pattern changes.
+- Python
+- Pandas
+- NumPy
+- Scikit-learn
+- Streamlit
+- Plotly
+- Joblib
 
-This project addresses the problem of **Adaptive Time-Series Forecasting Under Changing Conditions** by continuously evaluating forecast performance and updating the forecasting model when new observations become available.
-
-The system is designed to avoid relying on manually specified change dates and to support adaptation based on observed forecasting behaviour.
-
----
-
-## Proposed Solution
-
-The system uses historical patient-count time-series data to train a machine learning forecasting model.
-
-For V1, the forecasting process uses the recent history of patient counts to predict the next day's demand.
-
-### Forecasting Workflow
+## Project Structure
 
 ```text
-Historical Patient Data
-          ↓
-   Train Forecast Model
-          ↓
-   Predict Next-Day Demand
-          ↓
-     Actual Count Arrives
-          ↓
-    Calculate Forecast Error
-          ↓
-     Update Training Data
-          ↓
-       Retrain Model
-          ↓
-   Predict Following Day
-          ↓
-         Repeat
+adaptive-hospital-forecasting/
+├── data/
+├── models/
+├── logs/
+├── src/
+├── dashboard/
+├── train.py
+├── run_local.py
+├── requirements.txt
+└── README.md
