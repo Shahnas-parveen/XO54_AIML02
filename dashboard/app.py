@@ -9,11 +9,17 @@ PROJECT_ROOT = os.path.dirname(
 
 sys.path.insert(0, PROJECT_ROOT)
 
-
 import pandas as pd
 import streamlit as st
 
 from src.forecaster import PatientForecaster
+
+
+DATA_PATH = os.path.join(
+    PROJECT_ROOT,
+    "data",
+    "patient_data.csv"
+)
 
 
 st.set_page_config(
@@ -21,208 +27,243 @@ st.set_page_config(
     layout="wide"
 )
 
-
 st.title("🏥 Adaptive Hospital Demand Forecasting")
 
-st.write(
-    "Predict next-day patient demand and evaluate "
-    "the prediction when the actual count becomes available."
+
+# ==================================================
+# LOAD WORKING DATA
+# ==================================================
+
+if not os.path.exists(DATA_PATH):
+
+    st.error(
+        "patient_data.csv not found inside the data folder."
+    )
+
+    st.stop()
+
+
+df = pd.read_csv(DATA_PATH)
+
+df["timestamp"] = pd.to_datetime(
+    df["timestamp"]
+)
+
+df = (
+    df.sort_values("timestamp")
+    .reset_index(drop=True)
 )
 
 
-# ============================================
-# STEP 1 — HISTORICAL DATA
-# ============================================
+# ==================================================
+# TRAIN MODEL
+# ==================================================
 
-st.header("1. Historical Patient Data")
+model = PatientForecaster()
 
-uploaded_file = st.file_uploader(
-    "Upload training data",
-    type=["csv"]
+model.train(df)
+
+
+# ==================================================
+# NEXT DAY PREDICTION
+# ==================================================
+
+prediction = model.predict_next(df)
+
+last_date = df["timestamp"].iloc[-1]
+
+next_date = (
+    last_date + pd.Timedelta(days=1)
 )
 
 
-if uploaded_file is not None:
+st.header("Next-Day Patient Demand")
 
-    df = pd.read_csv(uploaded_file)
 
-    if "timestamp" not in df.columns:
-        st.error("CSV must contain a timestamp column.")
-        st.stop()
+col1, col2 = st.columns(2)
 
-    if "target" not in df.columns:
-        st.error("CSV must contain a target column.")
-        st.stop()
+with col1:
 
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    st.metric(
+        "Predicted Patients",
+        f"{prediction:.0f}"
+    )
 
-    df = df.sort_values("timestamp").reset_index(drop=True)
+with col2:
 
-    st.success(
-        f"Loaded {len(df)} historical observations."
+    st.metric(
+        "Prediction Date",
+        next_date.strftime("%d %b %Y")
     )
 
 
-    # ============================================
-    # STEP 2 — TRAIN MODEL
-    # ============================================
-
-    model = PatientForecaster()
-
-    model.train(df)
-
-    st.success("Forecasting model trained successfully.")
+st.info(
+    f"Expected patient demand for "
+    f"{next_date.strftime('%d %b %Y')}: "
+    f"**{prediction:.0f} patients**"
+)
 
 
-    # ============================================
-    # STEP 3 — NEXT DAY PREDICTION
-    # ============================================
+# ==================================================
+# ACTUAL PATIENT COUNT
+# ==================================================
 
-    prediction = model.predict_next(df)
-
-    last_date = df["timestamp"].iloc[-1]
-
-    next_date = last_date + pd.Timedelta(days=1)
+st.header("Enter Actual Patient Count")
 
 
-    st.header("2. Next-Day Patient Demand")
+actual_value = st.number_input(
+    f"Actual patient count for "
+    f"{next_date.strftime('%d %b %Y')}",
+    min_value=0.0,
+    step=1.0
+)
 
-    col1, col2 = st.columns(2)
+
+# ==================================================
+# EVALUATE + SAVE + RETRAIN
+# ==================================================
+
+if st.button("Submit Actual & Adapt Model"):
+
+    # ----------------------------------------------
+    # Calculate error
+    # ----------------------------------------------
+
+    error = abs(
+        actual_value - prediction
+    )
+
+    percentage_error = (
+        error / actual_value * 100
+        if actual_value != 0
+        else 0
+    )
+
+
+    # ----------------------------------------------
+    # Create new observation
+    # ----------------------------------------------
+
+    new_row = pd.DataFrame({
+        "timestamp": [next_date],
+        "target": [actual_value]
+    })
+
+
+    # ----------------------------------------------
+    # Add new observation to existing data
+    # ----------------------------------------------
+
+    updated_df = pd.concat(
+        [
+            df,
+            new_row
+        ],
+        ignore_index=True
+    )
+
+
+    updated_df = (
+        updated_df
+        .sort_values("timestamp")
+        .drop_duplicates(
+            subset=["timestamp"],
+            keep="last"
+        )
+        .reset_index(drop=True)
+    )
+
+
+    # ----------------------------------------------
+    # SAVE TO CSV
+    # ----------------------------------------------
+
+    updated_df.to_csv(
+        DATA_PATH,
+        index=False
+    )
+
+
+    # ----------------------------------------------
+    # RETRAIN MODEL
+    # ----------------------------------------------
+
+    model.train(updated_df)
+
+
+    # ----------------------------------------------
+    # NEW FORECAST
+    # ----------------------------------------------
+
+    new_prediction = (
+        model.predict_next(updated_df)
+    )
+
+    new_last_date = (
+        updated_df["timestamp"].iloc[-1]
+    )
+
+    new_next_date = (
+        new_last_date
+        + pd.Timedelta(days=1)
+    )
+
+
+    # ----------------------------------------------
+    # DISPLAY RESULTS
+    # ----------------------------------------------
+
+    st.success(
+        "Actual observation saved and model retrained."
+    )
+
+
+    st.subheader("Forecast Evaluation")
+
+
+    col1, col2, col3 = st.columns(3)
 
     with col1:
 
         st.metric(
-            "Predicted Patients",
+            "Predicted",
             f"{prediction:.0f}"
         )
 
     with col2:
 
         st.metric(
-            "Prediction Date",
-            next_date.strftime("%d %b %Y")
+            "Actual",
+            f"{actual_value:.0f}"
         )
+
+    with col3:
+
+        st.metric(
+            "Absolute Error",
+            f"{error:.2f}"
+        )
+
+
+    st.metric(
+        "Percentage Error",
+        f"{percentage_error:.2f}%"
+    )
+
+
+    st.subheader(
+        f"Updated Forecast — "
+        f"{new_next_date.strftime('%d %b %Y')}"
+    )
+
+
+    st.metric(
+        "Predicted Patients",
+        f"{new_prediction:.0f}"
+    )
 
 
     st.info(
-        f"Expected patient demand for "
-        f"{next_date.strftime('%d %b %Y')}: "
-        f"**{prediction:.0f} patients**"
+        f"The new observation has been added to the "
+        f"training data and the model has been retrained."
     )
-
-
-    # ============================================
-    # STEP 4 — ACTUAL VALUE
-    # ============================================
-
-    st.header("3. Enter Actual Patient Count")
-
-    actual_value = st.number_input(
-        f"Actual patient count for "
-        f"{next_date.strftime('%d %b %Y')}",
-        min_value=0.0,
-        step=1.0
-    )
-
-
-    # ============================================
-    # STEP 5 — CALCULATE ERROR
-    # ============================================
-
-    if st.button("Evaluate Forecast"):
-
-        error = abs(
-            actual_value - prediction
-        )
-
-        percentage_error = (
-            error / actual_value * 100
-            if actual_value != 0
-            else 0
-        )
-
-
-        st.header("4. Forecast Evaluation")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.metric(
-                "Predicted",
-                f"{prediction:.0f}"
-            )
-
-        with col2:
-            st.metric(
-                "Actual",
-                f"{actual_value:.0f}"
-            )
-
-        with col3:
-            st.metric(
-                "Absolute Error",
-                f"{error:.2f}"
-            )
-
-
-        st.metric(
-            "Percentage Error",
-            f"{percentage_error:.2f}%"
-        )
-
-
-        # ============================================
-        # STEP 6 — RETRAIN
-        # ============================================
-
-        st.header("5. Model Adaptation")
-
-        updated_row = pd.DataFrame({
-            "timestamp": [next_date],
-            "target": [actual_value]
-        })
-
-
-        updated_df = pd.concat(
-            [
-                df[["timestamp", "target"]],
-                updated_row
-            ],
-            ignore_index=True
-        )
-
-
-        updated_df = (
-            updated_df
-            .sort_values("timestamp")
-            .drop_duplicates(
-                subset=["timestamp"],
-                keep="last"
-            )
-            .reset_index(drop=True)
-        )
-
-
-        if st.button("Retrain Model"):
-
-            model.train(updated_df)
-
-            new_prediction = model.predict_next(
-                updated_df
-            )
-
-            new_date = (
-                updated_df["timestamp"].iloc[-1]
-                + pd.Timedelta(days=1)
-            )
-
-
-            st.success(
-                "Model retrained using the new patient count."
-            )
-
-
-            st.metric(
-                f"New Prediction — {new_date.strftime('%d %b %Y')}",
-                f"{new_prediction:.0f} patients"
-            )
