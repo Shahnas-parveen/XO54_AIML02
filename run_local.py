@@ -1,7 +1,10 @@
-import pandas as pd
+from src.preprocessing import (
+    load_data,
+    prepare_data
+)
 
-from src.preprocessing import load_data, prepare_data
 from src.model import ForecastingModel
+
 from src.pipeline import ForecastPipeline
 
 
@@ -12,41 +15,57 @@ MODEL_PATH = "models/forecasting_model.pkl"
 def main():
 
     print("=" * 60)
-    print("LOCAL FORECASTING SIMULATION")
+    print("LOCAL SEQUENTIAL FORECASTING")
     print("=" * 60)
 
-    # Load dataset
+    # Load data
     df = load_data(DATA_PATH)
 
     X, y, feature_columns = prepare_data(df)
 
     # Load trained model
     model = ForecastingModel()
+
     model.load(MODEL_PATH)
 
+    # Create pipeline
     pipeline = ForecastPipeline(model)
 
-    print("\nStarting sequential simulation...\n")
+    # Last 20% used as simulation period
+    start_index = int(
+        len(df) * 0.8
+    )
 
-    # Use last 20% as simulation/evaluation period
-    start_index = int(len(df) * 0.8)
+    print(
+        f"\nSimulation starts from row {start_index}"
+    )
 
-    for i in range(start_index, len(df)):
+    print(
+        "Simulating predictions sequentially...\n"
+    )
 
+    for i in range(
+        start_index,
+        len(df)
+    ):
+
+        # Features available BEFORE actual target
         features = X.iloc[[i]]
 
-        # Model predicts BEFORE seeing actual
-        prediction = pipeline.predict(features)
-
-        # Actual becomes available afterwards
-        actual = float(y.iloc[i])
-
-        timestamp = (
-            df.iloc[i]["timestamp"]
-            if "timestamp" in df.columns
-            else i
+        # Make prediction
+        prediction = pipeline.predict(
+            features
         )
 
+        # Actual becomes available
+        actual = float(
+            y.iloc[i]
+        )
+
+        # Timestamp
+        timestamp = df.iloc[i]["timestamp"]
+
+        # Update monitoring
         record = pipeline.update(
             step=i,
             timestamp=timestamp,
@@ -55,16 +74,24 @@ def main():
         )
 
         print(
-            f"Step {i} | "
+            f"{timestamp.date()} | "
             f"Prediction: {prediction:.2f} | "
             f"Actual: {actual:.2f} | "
-            f"Error: {record['absolute_error']:.2f}"
+            f"Error: {record['absolute_error']:.2f} | "
+            f"Status: {record['status']}"
         )
 
-    print("\nSimulation completed.")
+    print(
+        "\nSimulation completed successfully."
+    )
 
-    print("\nLog saved to:")
-    print("logs/evaluation_log.csv")
+    print(
+        "\nLog saved to:"
+    )
+
+    print(
+        "logs/evaluation_log.csv"
+    )
 
 
 if __name__ == "__main__":

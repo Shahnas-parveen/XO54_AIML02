@@ -1,50 +1,50 @@
 import pandas as pd
 
 
+TARGET_COLUMN = "target"
+
+
 def load_data(path):
     df = pd.read_csv(path)
 
-    # Remove completely empty columns
-    df = df.dropna(axis=1, how="all")
+    # Convert timestamp to datetime
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+        # Sort chronologically
+        df = df.sort_values("timestamp").reset_index(drop=True)
 
     return df
 
 
 def prepare_data(df):
-    """
-    Prepare training data.
 
-    Expected structure:
-    feature_1, feature_2, ..., feature_n, target
-    """
-
-    # Target column
-    target_column = "target"
-
-    if target_column not in df.columns:
+    if TARGET_COLUMN not in df.columns:
         raise ValueError(
-            f"'target' column not found. Available columns: {list(df.columns)}"
+            f"Target column '{TARGET_COLUMN}' not found."
         )
 
-    # Automatically identify feature columns
     feature_columns = [
         col for col in df.columns
         if col.startswith("feature_")
     ]
 
     if not feature_columns:
-        raise ValueError("No feature_* columns found.")
+        raise ValueError("No feature columns found.")
 
+    # Input features
     X = df[feature_columns].copy()
-    y = df[target_column].copy()
+
+    # Target
+    y = df[TARGET_COLUMN].copy()
+
+    # Convert features to numeric
+    X = X.apply(pd.to_numeric, errors="coerce")
 
     # Handle missing values
     X = X.ffill().bfill()
 
-    # Convert to numeric
-    X = X.apply(pd.to_numeric, errors="coerce")
-
-    # Fill any remaining missing values
+    # Remaining missing values
     X = X.fillna(X.median())
 
     return X, y, feature_columns
