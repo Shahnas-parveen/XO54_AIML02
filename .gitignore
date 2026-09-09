@@ -13,6 +13,9 @@ models/*.pkl
 # Generated logs
 logs/*.csv
 
+# Evaluation session IDs
+sessions/
+
 # Streamlit
 .streamlit/
 
