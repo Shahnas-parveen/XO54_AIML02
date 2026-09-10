@@ -7,11 +7,12 @@ venv/
 .venv/
 env/
 
-# Generated models
 models/*.pkl
-
-# Generated logs
 logs/*.csv
+
+!models/forecasting_model.pkl
+!logs/sc1_log.csv
+!logs/sc2_log.csv
 
 # Evaluation session IDs
 sessions/

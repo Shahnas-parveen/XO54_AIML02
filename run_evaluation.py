@@ -7,16 +7,20 @@ import pandas as pd
 from src.api_client import EvaluationAPI
 from src.model import ForecastingModel
 from src.features import build_live_features
+from src.features import get_feature_columns
 from src.change_detector import QuietShiftDetector
 from src.anomaly_detector import FalseAlarmDetector
 
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
 TEAM_NAME = "Neural Ninjas"
 
 MODEL_PATH = "models/forecasting_model.pkl"
 TRAINING_PATH = "data/training_set.csv"
 SESSION_DIR = "sessions"
-
 
 FEATURE_COLUMNS = [
     "feature_1",
@@ -27,6 +31,10 @@ FEATURE_COLUMNS = [
     "feature_6"
 ]
 
+
+# ============================================================
+# SESSION MANAGEMENT
+# ============================================================
 
 def save_session(stream, session_id):
 
@@ -41,6 +49,7 @@ def save_session(stream, session_id):
     )
 
     with open(path, "w") as f:
+
         json.dump(
             {
                 "stream": stream,
@@ -62,25 +71,107 @@ def load_existing_session(stream):
         return None
 
     with open(path, "r") as f:
+
         data = json.load(f)
 
     return data["session_id"]
 
 
+# ============================================================
+# MODEL ADAPTATION
+# ============================================================
+
+def adapt_model(model, observed_data):
+
+    if len(observed_data) < 10:
+
+        print(
+            ">>> Not enough observations for adaptation."
+        )
+
+        return False
+
+    recent_window = 50
+
+    recent_data = (
+        observed_data
+        .tail(recent_window)
+        .copy()
+    )
+
+    # Create the same engineered features
+    # used during initial training.
+    from src.features import add_features
+
+    engineered = add_features(
+        recent_data
+    )
+
+    feature_columns = get_feature_columns()
+
+    engineered = engineered.dropna()
+
+    if len(engineered) < 5:
+
+        print(
+            ">>> Not enough valid recent data "
+            "for adaptation."
+        )
+
+        return False
+
+    X = engineered[
+        feature_columns
+    ]
+
+    y = engineered[
+        "target"
+    ]
+
+    model.train(
+        X,
+        y
+    )
+
+    print(
+        f">>> MODEL ADAPTED using "
+        f"{len(engineered)} recent observations."
+    )
+
+    return True
+
+
+# ============================================================
+# LIVE STREAM
+# ============================================================
+
 def run_stream(stream):
 
     print("=" * 60)
-    print(f"STARTING LIVE EVALUATION: {stream.upper()}")
+    print(
+        f"STARTING LIVE EVALUATION: "
+        f"{stream.upper()}"
+    )
     print("=" * 60)
 
-    existing_session = load_existing_session(stream)
+
+    # --------------------------------------------------------
+    # SESSION
+    # --------------------------------------------------------
+
+    existing_session = (
+        load_existing_session(stream)
+    )
 
     if existing_session:
 
         print(
             f"Existing {stream.upper()} session found:"
         )
-        print(existing_session)
+
+        print(
+            existing_session
+        )
 
         session_id = existing_session
 
@@ -99,18 +190,28 @@ def run_stream(stream):
 
         session = api.start_session()
 
-        session_id = session["session_id"]
+        session_id = session[
+            "session_id"
+        ]
 
         save_session(
             stream,
             session_id
         )
 
-        print("New session created:")
-        print(session_id)
+        print(
+            "New session created:"
+        )
+
+        print(
+            session_id
+        )
 
 
-    # Load improved model
+    # --------------------------------------------------------
+    # LOAD MODEL
+    # --------------------------------------------------------
+
     model = ForecastingModel()
 
     model.load(
@@ -118,17 +219,32 @@ def run_stream(stream):
     )
 
 
-    # Seed target history using historical training data
+    # --------------------------------------------------------
+    # HISTORICAL TARGET HISTORY
+    # --------------------------------------------------------
+
     training_df = pd.read_csv(
         TRAINING_PATH
     )
 
+    training_df[
+        "timestamp"
+    ] = pd.to_datetime(
+        training_df["timestamp"]
+    )
+
     target_history = (
-        training_df["target"]
+        training_df[
+            "target"
+        ]
         .astype(float)
         .tolist()
     )
 
+
+    # --------------------------------------------------------
+    # DETECTOR
+    # --------------------------------------------------------
 
     if stream == "sc1":
 
@@ -139,6 +255,12 @@ def run_stream(stream):
         detector = FalseAlarmDetector()
 
 
+    # --------------------------------------------------------
+    # LIVE OBSERVATION HISTORY
+    # --------------------------------------------------------
+
+    observed_data = []
+
     logs = []
 
     os.makedirs(
@@ -147,24 +269,50 @@ def run_stream(stream):
     )
 
 
+    # ========================================================
+    # API LOOP
+    # ========================================================
+
     while True:
 
+        # ----------------------------------------------------
+        # 1. GET NEXT ROW
+        # ----------------------------------------------------
+
         nxt = api.get_next()
+
 
         if nxt.get("done"):
 
             print()
             print(
-                f"{stream.upper()} COMPLETED SUCCESSFULLY."
+                "=" * 60
+            )
+
+            print(
+                f"{stream.upper()} "
+                f"COMPLETED SUCCESSFULLY."
+            )
+
+            print(
+                "=" * 60
             )
 
             break
 
 
-        step = nxt["step"]
+        step = nxt[
+            "step"
+        ]
 
-        timestamp = nxt["timestamp"]
+        timestamp = nxt[
+            "timestamp"
+        ]
 
+
+        # ----------------------------------------------------
+        # 2. GET FEATURES
+        # ----------------------------------------------------
 
         features = {
             column: nxt[column]
@@ -172,7 +320,10 @@ def run_stream(stream):
         }
 
 
-        # Build features using previous observed targets
+        # ----------------------------------------------------
+        # 3. BUILD LIVE FEATURES
+        # ----------------------------------------------------
+
         X_live = build_live_features(
             timestamp,
             features,
@@ -180,102 +331,227 @@ def run_stream(stream):
         )
 
 
+        # ----------------------------------------------------
+        # 4. PREDICT
+        # ----------------------------------------------------
+
         prediction = float(
-            model.predict(X_live)[0]
+            model.predict(
+                X_live
+            )[0]
         )
 
 
-        # IMPORTANT:
-        # Prediction is submitted BEFORE seeing actual
+        # ----------------------------------------------------
+        # 5. SUBMIT PREDICTION
+        # ----------------------------------------------------
+
         result = api.submit_prediction(
             prediction
         )
 
 
+        # ----------------------------------------------------
+        # 6. RECEIVE ACTUAL
+        # ----------------------------------------------------
+
         actual = float(
-            result["actual_target"]
+            result[
+                "actual_target"
+            ]
         )
 
 
-        error = abs(
+        # ----------------------------------------------------
+        # 7. CALCULATE ERROR
+        # ----------------------------------------------------
+
+        signed_error = (
             actual - prediction
         )
 
+        absolute_error = abs(
+            signed_error
+        )
 
-        # Now actual is known and becomes history
+        if actual != 0:
+
+            percentage_error = (
+                absolute_error
+                / abs(actual)
+            ) * 100
+
+        else:
+
+            percentage_error = 0.0
+
+
+        # ----------------------------------------------------
+        # 8. UPDATE TARGET HISTORY
+        # ----------------------------------------------------
+
         target_history.append(
             actual
         )
 
 
-        decision = detector.update(
-            step,
-            error
+        # ----------------------------------------------------
+        # 9. SAVE OBSERVED DATA
+        # ----------------------------------------------------
+
+        observed_data.append(
+            {
+                "timestamp": timestamp,
+                **features,
+                "target": actual
+            }
         )
 
 
-        adaptation = "HOLD MODEL"
+        # ----------------------------------------------------
+        # 10. CHANGE / ANOMALY DETECTION
+        # ----------------------------------------------------
+
+        decision = detector.update(
+            step,
+            absolute_error
+        )
 
 
-        # For a confirmed lasting change,
-        # rebuild model using recent observations.
-        if decision["status"] == "CONFIRMED CHANGE":
+        # ----------------------------------------------------
+        # 11. MODEL ACTION
+        # ----------------------------------------------------
 
-            adaptation = "ADAPT MODEL"
+        adaptation = (
+            "HOLD MODEL"
+        )
 
+
+        if (
+            decision["status"]
+            == "CONFIRMED CHANGE"
+        ):
+
+            print()
             print(
                 ">>> CONFIRMED CHANGE DETECTED"
             )
 
+            adapted = adapt_model(
+                model,
+                pd.DataFrame(
+                    observed_data
+                )
+            )
+
+            if adapted:
+
+                adaptation = (
+                    "MODEL ADAPTED"
+                )
+
+            else:
+
+                adaptation = (
+                    "ADAPTATION SKIPPED"
+                )
+
+
+        # ----------------------------------------------------
+        # 12. CREATE LOG RECORD
+        # ----------------------------------------------------
 
         record = {
-            "step": step,
-            "timestamp": timestamp,
-            "predicted": prediction,
-            "actual": actual,
-            "absolute_error": error,
-            "status": decision["status"],
-            "adaptation": adaptation,
-            "reason": decision["reason"]
+
+            "step":
+                step,
+
+            "timestamp":
+                timestamp,
+
+            "predicted":
+                prediction,
+
+            "actual":
+                actual,
+
+            "error":
+                signed_error,
+
+            "absolute_error":
+                absolute_error,
+
+            "percentage_error":
+                percentage_error,
+
+            "status":
+                decision[
+                    "status"
+                ],
+
+            "adaptation":
+                adaptation,
+
+            "reason":
+                decision[
+                    "reason"
+                ]
         }
 
+
+        # ----------------------------------------------------
+        # SC1 INFORMATION
+        # ----------------------------------------------------
 
         if stream == "sc1":
 
             record.update({
+
                 "change_score":
                     decision.get(
                         "change_score"
                     ),
+
                 "baseline_error":
                     decision.get(
                         "baseline_error"
                     ),
+
                 "recent_error":
                     decision.get(
                         "recent_error"
                     ),
+
                 "error_trend":
                     decision.get(
                         "trend"
                     ),
+
                 "confirmed_step":
                     decision.get(
                         "confirmed_step"
                     )
             })
 
+
+        # ----------------------------------------------------
+        # SC2 INFORMATION
+        # ----------------------------------------------------
+
         else:
 
             record.update({
+
                 "baseline_error":
                     decision.get(
                         "baseline_error"
                     ),
+
                 "current_error":
                     decision.get(
                         "current_error"
                     ),
+
                 "anomaly":
                     decision.get(
                         "anomaly"
@@ -283,33 +559,49 @@ def run_stream(stream):
             })
 
 
-        logs.append(record)
+        # ----------------------------------------------------
+        # 13. SAVE LOG AFTER EVERY OBSERVATION
+        # ----------------------------------------------------
 
+        logs.append(
+            record
+        )
 
-        # Save after EVERY API observation
-        pd.DataFrame(logs).to_csv(
+        pd.DataFrame(
+            logs
+        ).to_csv(
             f"logs/{stream}_log.csv",
             index=False
         )
 
 
+        # ----------------------------------------------------
+        # 14. DISPLAY STATUS
+        # ----------------------------------------------------
+
         print(
             f"Step {step:03d} | "
             f"Pred={prediction:.2f} | "
             f"Actual={actual:.2f} | "
-            f"Error={error:.2f} | "
+            f"Error={absolute_error:.2f} | "
             f"{decision['status']} | "
             f"{adaptation}"
         )
 
 
     print()
+
     print(
-        f"Log saved to logs/{stream}_log.csv"
+        f"Log saved to "
+        f"logs/{stream}_log.csv"
     )
 
     return session_id
 
+
+# ============================================================
+# MAIN
+# ============================================================
 
 if __name__ == "__main__":
 
@@ -317,7 +609,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "stream",
-        choices=["sc1", "sc2"]
+        choices=[
+            "sc1",
+            "sc2"
+        ]
     )
 
     args = parser.parse_args()

@@ -13,7 +13,7 @@ SC1_LOG = "logs/sc1_log.csv"
 SC2_LOG = "logs/sc2_log.csv"
 
 st.set_page_config(
-    page_title="Adaptive Hospital Demand Forecasting",
+    page_title="Adaptive Ridge Forecasting Model",
     page_icon="🏥",
     layout="wide"
 )
@@ -409,7 +409,7 @@ def show_recent_data(df):
 # ============================================================
 
 st.title(
-    "🏥 Adaptive Hospital Demand Forecasting"
+    "Adaptive Ridge Forecasting Model"
 )
 
 st.caption(
@@ -442,7 +442,7 @@ with col1:
     st.write("### Model")
 
     st.info(
-        "Random Forest Forecasting Model"
+        "Adaptive Ridge Forecasting Model"
     )
 
 with col2:
